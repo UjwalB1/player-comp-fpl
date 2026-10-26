@@ -1,0 +1,6 @@
+# SQLite cache, rebuilt from the API on demand
+players.db
+players.db-journal
+
+__pycache__/
+.venv/

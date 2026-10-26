@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Player Comparison</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <h1>Premier League player comparison</h1>
+    <p class="subtitle">Live stats from the Fantasy Premier League API.</p>
+
+    <form id="compare-form">
+      <input id="name-a" type="text" placeholder="e.g. Haaland" autocomplete="off">
+      <span class="vs">vs</span>
+      <input id="name-b" type="text" placeholder="e.g. Isak" autocomplete="off">
+      <button type="submit">Compare</button>
+    </form>
+
+    <div id="results"></div>
+  </main>
+
+  <script>
+    const form = document.getElementById("compare-form");
+    const inputs = { a: document.getElementById("name-a"), b: document.getElementById("name-b") };
+    const results = document.getElementById("results");
+
+    // Player ids picked from a "did you mean" list. Typing again clears the pick.
+    const picked = { a: null, b: null };
+    for (const side of ["a", "b"]) {
+      inputs[side].addEventListener("input", () => { picked[side] = null; });
+    }
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();  // stop the browser reloading the page
+      compare();
+    });
+
+    async function compare() {
+      const a = inputs.a.value.trim();
+      const b = inputs.b.value.trim();
+      if (!a || !b) {
+        showResults([message("Enter a player name in both boxes.", "error")]);
+        return;
+      }
+
+      let data;
+      try {
+        const response = await fetch("/api/compare", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ a: a, b: b, a_id: picked.a, b_id: picked.b }),
+        });
+        data = await response.json();
+      } catch (error) {
+        showResults([message("Couldn't reach the server. Is app.py still running?", "error")]);
+        return;
+      }
+      render(data);
+    }
+
+    function render(data) {
+      if (data.error) {
+        showResults([message(data.error, "error")]);
+        return;
+      }
+      const parts = [];
+      if (data.notice) {
+        parts.push(message(data.notice, "notice"));
+      }
+      for (const side of ["a", "b"]) {
+        if (data[side].error) {
+          parts.push(problem(side, data[side]));
+        }
+      }
+      if (data.rows) {
+        parts.push(table(data.a.player, data.b.player, data.rows));
+      }
+      showResults(parts);
+    }
+
+    // A "not found" or "which one did you mean?" box for one side.
+    function problem(side, result) {
+      const box = message(result.error, "error");
+      for (const match of result.matches) {
+        const button = document.createElement("button");
+        button.className = "match";
+        button.textContent = `${match.full_name} · ${match.club} · ${match.position} · ${match.price}`;
+        button.addEventListener("click", () => {
+          inputs[side].value = match.full_name;
+          picked[side] = match.id;
+          compare();
+        });
+        box.appendChild(button);
+      }
+      return box;
+    }
+
+    function table(playerA, playerB, rows) {
+      const tableEl = document.createElement("table");
+      const header = tableEl.insertRow();
+      header.appendChild(document.createElement("th"));
+      for (const player of [playerA, playerB]) {
+        const th = document.createElement("th");
+        th.textContent = player.web_name;
+        const fullName = document.createElement("small");
+        fullName.textContent = player.full_name;
+        th.appendChild(fullName);
+        header.appendChild(th);
+      }
+
+      for (const row of rows) {
+        const tr = tableEl.insertRow();
+        tr.insertCell().textContent = row.label;
+        for (const side of ["a", "b"]) {
+          const cell = tr.insertCell();
+          cell.textContent = row[side];
+          if (row.better === side) {
+            cell.className = "better";
+          }
+        }
+      }
+      return tableEl;
+    }
+
+    function message(text, kind) {
+      const div = document.createElement("div");
+      div.className = kind;
+      const p = document.createElement("p");
+      p.textContent = text;  // textContent, not innerHTML, so names can't inject HTML
+      div.appendChild(p);
+      return div;
+    }
+
+    function showResults(elements) {
+      results.replaceChildren(...elements);
+    }
+  </script>
+</body>
+</html>
